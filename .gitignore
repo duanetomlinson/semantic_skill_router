@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.env
+.env.*
+.venv/
+venv/
+*.onnx
+*.bin
+*.pt
+*.tar.gz
+.DS_Store
+*.jpg
+*.jpeg
+*.png
+
+# Model files (large, exported per-device)
+models/
+
+# Backups
+*.bak

@@ -1,0 +1,30 @@
+[project]
+name = "redis-skill-router-robot"
+version = "0.2.0"
+description = "Semantic command dispatch + robot tank control using Redis Vector Search"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Duane Tomlinson" },
+]
+
+dependencies = [
+    "redis>=5.0.0",
+    "sentence-transformers>=4.1.0",
+    "numpy",
+    "anthropic>=0.40.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
