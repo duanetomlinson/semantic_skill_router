@@ -9,7 +9,7 @@
 
 Routes natural language to executable functions using Redis Vector Search. No LLM in the routing loop. The entire pipeline — embed, search, execute — completes in ~40 milliseconds on a Raspberry Pi 4B.
 
-> **This branch (`claude/redis-v3-pi4`) is the art-of-the-possible cut.** The other branches ran on a Pi 5; this one stays on the same Pi 4B that drives the Freenove Tank Robot, and upgrades the embedding model from `langcache-embed-v2` (128-dim) to `langcache-embed-v3-small` (384-dim). Same pipeline, older board, better accuracy, 8x faster than the v2 baseline on the same hardware.
+> **This is the `robot-tank-agent` branch — the art-of-the-possible cut.** The prior branches ran on a Pi 5; this one stays on the Pi 4B that drives the Freenove Tank Robot and ships `langcache-embed-v3-small` (384-dim, native output) via ONNX Runtime. Same pipeline, older board, ~40ms end-to-end, 97% accuracy.
 
 The system controls a physical Freenove Tank Robot on a Raspberry Pi 4B. Motors, camera, ultrasonic sensors, servos, and LEDs are all dispatched through natural language matched against a skill library stored in Redis.
 
@@ -182,7 +182,7 @@ onto the Pi 4B without re-benchmarking the losers.
 |--------|----------|---------|----------------|-------------|
 | `main` | Pi 5 | PyTorch | v2 → **v3-small** | Zero-agent routing works. 260ms on v2, **~20ms after the v3-small upgrade**. |
 | `onnx-optimization` | Pi 5 | ONNX Runtime | v2 → **v3-small** | One-line backend swap drops v2 from 260ms to 61ms. The v3-small upgrade then takes it to **~9ms**. |
-| **`claude/redis-v3-pi4`** (robot tank) | **Pi 4B** | **ONNX Runtime** | **v3-small only** | **Art of the possible on the robot's own board.** Skipped the v2 rungs — already validated on Pi 5 — and jumped straight to v3-small. **40ms end-to-end, 97% accuracy, no Pi 5 required.** Plus 26 robot skills, a Tier 2 agent with vision, and a learning loop that saves strategies back to Redis. |
+| **`robot-tank-agent`** (this branch) | **Pi 4B** | **ONNX Runtime** | **v3-small only** | **Art of the possible on the robot's own board.** Skipped the v2 rungs — already validated on Pi 5 — and jumped straight to v3-small. **40ms end-to-end, 97% accuracy, no Pi 5 required.** Plus 26 robot skills, a Tier 2 agent with vision, and a learning loop that saves strategies back to Redis. |
 
 In short: the Pi 5 branches proved which backend and which model win. This
 branch takes that answer, puts it on a Pi 4B, and builds the robot on top
