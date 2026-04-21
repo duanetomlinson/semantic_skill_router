@@ -136,20 +136,21 @@ I designed the two-tier architecture, the three-layer Redis model (intent, learn
 
 ## Benchmarks
 
-The v2 → v3-small model upgrade was rolled across every branch in the project.
-Each branch therefore has two data points: the original v2 (128-dim) result,
-and the v3-small (384-dim) result after the upgrade. What changes between
-branches is the hardware and the scope.
+The v2 → ONNX → v3-small progression was walked end-to-end on the prior two
+Pi 5 branches (`main` and `onnx-optimization`). By the time the robot tank
+work landed, v3-small was the validated winner — so this branch was built
+**on v3-small only**, no v2 baseline rerun on the Pi 4B.
 
 ### Raspberry Pi 4B (robot tank, 4GB RAM) — this branch
 
 | Backend | Model | Avg Latency | Accuracy |
 |---------|-------|------------|----------|
-| PyTorch | langcache-embed-v2 (128-dim) | 645ms | 87% |
-| ONNX | langcache-embed-v2 (128-dim) | 325ms | 92% |
 | **ONNX** | **langcache-embed-v3-small (384-dim)** | **40ms** | **97%** |
 
-### Raspberry Pi 5 (other branches, for reference)
+Only row measured. The v2 rungs were already climbed on Pi 5; rerunning them
+on a slower board would have added no new information.
+
+### Raspberry Pi 5 (prior branches, for reference)
 
 | Backend | Model | Avg Latency | Accuracy |
 |---------|-------|------------|----------|
@@ -158,8 +159,8 @@ branches is the hardware and the scope.
 | PyTorch | langcache-embed-v3-small (384-dim) | ~20ms | 100% |
 | ONNX | langcache-embed-v3-small (384-dim) | ~9ms | 100% |
 
-The v3-small row is the one every branch now ships. The Pi 5 branches land at
-9ms; this Pi 4B branch lands at 40ms. Same model, same code, different silicon.
+The v3-small ONNX row is what this branch ships. ~9ms on a Pi 5; ~40ms on
+this Pi 4B — same model, same code path, different silicon.
 
 ### Time Breakdown (Pi 4B, ONNX v3-small)
 
@@ -173,22 +174,19 @@ Handler:    ░░░░░░░░░░░░░░░░░░░░░░  
 
 ## Branch Progression
 
-The story has two independent threads: a **runtime/backend** ladder and a
-**model** upgrade. The model upgrade (v2 → v3-small) landed on every branch,
-not just this one — each branch carries both the v2 baseline and the
-v3-small result. What changes between branches is the backend, the skill
-scope, and the target hardware.
+The model and backend work was done on the Pi 5 branches. The robot tank
+branch inherited the winning configuration — ONNX + v3-small — and moved
+onto the Pi 4B without re-benchmarking the losers.
 
-| Branch | Hardware | Backend | Model(s) shipped | Key Finding |
-|--------|----------|---------|-------------------|-------------|
+| Branch | Hardware | Backend | Models tested | Key Finding |
+|--------|----------|---------|----------------|-------------|
 | `main` | Pi 5 | PyTorch | v2 → **v3-small** | Zero-agent routing works. 260ms on v2, **~20ms after the v3-small upgrade**. |
 | `onnx-optimization` | Pi 5 | ONNX Runtime | v2 → **v3-small** | One-line backend swap drops v2 from 260ms to 61ms. The v3-small upgrade then takes it to **~9ms**. |
-| `robot-tank-agent` | Pi 5 → Pi 4B | ONNX Runtime | v2 → **v3-small** | 26 skills, robot hardware, Tier 2 agent, learning loop. Ported from Pi 5 to Pi 4B; v3-small upgrade applied here too. |
-| **`claude/redis-v3-pi4`** | **Pi 4B** | **ONNX Runtime** | **v3-small** | **Art of the possible on the robot's own board.** Full v3-small pipeline, 384-dim native, **40ms end-to-end on a Pi 4B — no Pi 5 required.** |
+| **`claude/redis-v3-pi4`** (robot tank) | **Pi 4B** | **ONNX Runtime** | **v3-small only** | **Art of the possible on the robot's own board.** Skipped the v2 rungs — already validated on Pi 5 — and jumped straight to v3-small. **40ms end-to-end, 97% accuracy, no Pi 5 required.** Plus 26 robot skills, a Tier 2 agent with vision, and a learning loop that saves strategies back to Redis. |
 
-In short: v3-small is the shared upgrade, not a branch-specific flourish.
-This branch's contribution is proving the v3-small pipeline holds its speed
-budget on the Pi 4B that's actually inside the robot.
+In short: the Pi 5 branches proved which backend and which model win. This
+branch takes that answer, puts it on a Pi 4B, and builds the robot on top
+of it.
 
 ---
 

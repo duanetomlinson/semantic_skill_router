@@ -44,35 +44,18 @@ occupies a region defined by all the ways a user might express that intent.
 ## Benchmark Results (Raspberry Pi 4B, 4GB RAM, CPU only)
 
 This branch shows the art of the possible on a Pi 4 — the same hardware that
-runs the Freenove Tank Robot. Every branch in the project went through the
-same two-step story: a backend swap (PyTorch → ONNX Runtime) and a model
-upgrade (`langcache-embed-v2`, 128-dim → `langcache-embed-v3-small`,
-384-dim). Both steps were applied on `main`, `onnx-optimization`, and
-`robot-tank-agent` on a Pi 5; this branch reruns the same ladder on a Pi 4B
-to confirm the final v3-small pipeline holds up on the older, lower-power
-board that's actually bolted into the robot.
+runs the Freenove Tank Robot. The backend swap (PyTorch → ONNX Runtime) and
+the model upgrade (`langcache-embed-v2` 128-dim → `langcache-embed-v3-small`
+384-dim) were both proven on the prior Pi 5 branches (`main`,
+`onnx-optimization`). By the time the robot tank work started, v3-small on
+ONNX was the validated winning configuration — so this branch skipped the
+losing rungs and was built **on v3-small only**.
 
 Tested across 21 queries: 19 valid commands mapped to 9 skill handlers, plus
 2 garbage queries ("tell me a joke", "what's the meaning of life") that should
 be rejected.
 
-### PyTorch Backend (langcache-embed-v2, 128-dim)
-
-|Metric            |Value                                           |
-|------------------|------------------------------------------------|
-|Routing accuracy  |18/21 (87%) — garbage queries leaked through    |
-|Avg search latency|645ms                                           |
-|Model             |redis/langcache-embed-v2 via SentenceTransformer|
-
-### ONNX Backend, v2 (one line change)
-
-|Metric            |Value                                            |
-|------------------|-------------------------------------------------|
-|Routing accuracy  |19/21 (92%)                                      |
-|Avg search latency|325ms                                            |
-|Model             |redis/langcache-embed-v2 via ONNX Runtime        |
-
-### ONNX Backend, v3-small (shipped on every branch; measured here on Pi 4B)
+### ONNX Backend, v3-small (the only configuration run on this branch)
 
 |Metric            |Value                                              |
 |------------------|---------------------------------------------------|
@@ -81,18 +64,22 @@ be rejected.
 |Model             |redis/langcache-embed-v3-small via ONNX Runtime    |
 |Vector dim        |384 (native output, no truncation)                 |
 
-This v3-small row is the configuration every branch now runs. On a Pi 5 it
-clocks ~9ms (see `main`, `onnx-optimization`, `robot-tank-agent`); on this
-Pi 4B branch the same model and code path land at ~40ms.
+No v2 rerun on the Pi 4B. The v2 → v3-small delta was already characterised
+on Pi 5 (see below); repeating it on a slower board would have added no new
+information. The contribution of this branch is confirming that the
+winning configuration — ONNX + v3-small — lands inside the robot's real-time
+budget on the actual hardware bolted to the Freenove chassis.
 
-### Comparison
+### Pi 5 reference (from the prior branches)
 
-|Metric       |PyTorch v2|ONNX v2|ONNX v3-small|Improvement       |
-|-------------|----------|-------|-------------|------------------|
-|Avg latency  |645ms     |325ms  |40ms         |**16x faster**    |
-|Accuracy     |87%       |92%    |97%          |**+10 points**    |
-|Code change  |—         |1 line |model swap   |`backend="onnx"`  |
-|Redis index  |—         |Same   |Rebuilt 384-d|One-time reindex  |
+|Configuration                         |Avg Latency|Accuracy|
+|--------------------------------------|-----------|--------|
+|PyTorch + langcache-embed-v2 (128-dim)|260ms      |90%     |
+|ONNX + langcache-embed-v2 (128-dim)   |61ms       |100%    |
+|ONNX + langcache-embed-v3-small (384) |~9ms       |100%    |
+
+Pi 5 with this branch's shipping config: ~9ms. Pi 4B with the same code:
+~40ms. Same model weights, same code path, different silicon.
 
 ## Where the Time Goes
 
@@ -209,24 +196,23 @@ is itself sub-millisecond.
 
 ## Optimization Ladder
 
-The same three-rung ladder was walked on every branch. Steps 1 and 2 are the
-backend swap; step 3 is the model upgrade (`langcache-embed-v2` → `langcache-
-embed-v3-small`), which landed on `main`, `onnx-optimization`, and
-`robot-tank-agent` as well. Numbers below are from this branch, measured on
-a Raspberry Pi 4B — the board driving the robot.
+Steps 1 and 2 — the backend swap and the v2 → v3-small model upgrade —
+were completed on the Pi 5 branches. This branch skipped rerunning those
+losers on slower hardware and was built directly on step 2's output.
 
 ```
-Step 1: PyTorch v2 on Pi 4B CPU              → 645ms  ✅ Done
-Step 2: ONNX Runtime v2 on Pi 4B CPU         → 325ms  ✅ Done
-Step 3: ONNX Runtime v3-small on Pi 4B CPU   →  40ms  ✅ Done (shipped on every branch)
-Step 4: ONNX + INT8 quantization             → ~20ms  (halves model size + faster math)
-Step 5: GPU offload to P620 (RTX 3090)       →  <5ms  (embed on GPU, search on Pi)
+Step 1: PyTorch v2           →  260ms  ✅ Done on Pi 5 (main branch)
+Step 2: ONNX + v3-small      →   ~9ms  ✅ Done on Pi 5 (onnx-optimization branch)
+Step 3: ONNX + v3-small      →   40ms  ✅ Done on Pi 4B (this branch — robot hardware port)
+Step 4: ONNX + INT8 quant    →  ~20ms  (halves model size + faster math, Pi 4B)
+Step 5: GPU offload to P620  →   <5ms  (embed on GPU, search on Pi)
 ```
 
-The Pi 5 branches walked the same ladder and bottomed out at ~9ms after the
-v3-small upgrade. On a Pi 4 we land at 40ms with identical code and
-identical model weights — still well inside the budget for real-time robot
-control.
+Step 3 isn't a speed improvement over step 2 — it's a hardware port. The
+goal was to confirm the winning configuration from step 2 still fits inside
+the robot's real-time budget on the Pi 4B, using only v3-small. It does:
+40ms end-to-end, same model weights and same code path as the 9ms Pi 5
+result.
 
 ## Tech Stack
 
