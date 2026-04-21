@@ -7,12 +7,14 @@
 
 ## What It Does
 
-Routes natural language to executable functions using Redis Vector Search. No LLM in the routing loop. The entire pipeline — embed, search, execute — completes in under 10 milliseconds on a Raspberry Pi 5.
+Routes natural language to executable functions using Redis Vector Search. No LLM in the routing loop. The entire pipeline — embed, search, execute — completes in ~40 milliseconds on a Raspberry Pi 4B.
+
+> **This branch (`claude/redis-v3-pi4`) is the art-of-the-possible cut.** The other branches ran on a Pi 5; this one stays on the same Pi 4B that drives the Freenove Tank Robot, and upgrades the embedding model from `langcache-embed-v2` (128-dim) to `langcache-embed-v3-small` (384-dim). Same pipeline, older board, better accuracy, 8x faster than the v2 baseline on the same hardware.
 
 The system controls a physical Freenove Tank Robot on a Raspberry Pi 4B. Motors, camera, ultrasonic sensors, servos, and LEDs are all dispatched through natural language matched against a skill library stored in Redis.
 
 ```
-"drive the robot forward"  -->  Embed (9ms)  -->  Redis KNN (1ms)  -->  Handler executes
+"drive the robot forward"  -->  Embed (~37ms)  -->  Redis KNN (~2ms)  -->  Handler executes
 ```
 
 When a query doesn't match any known skill, a Tier 2 agent steps in. The agent uses the same Redis skill library as its tool catalog, solves the task, and saves the strategy back to Redis so the next identical request routes at vector-search speed.
@@ -31,7 +33,7 @@ The question: **can Redis replace the LLM for the 90% of commands that don't nee
 
 ### 1. Intent Layer — Vector Search for Command Routing
 
-Each skill is stored as a Redis document with a 384-dimensional embedding vector (generated from the skill's description and example phrases). When a user speaks, the query is embedded and matched via `FT.SEARCH KNN` in ~1ms.
+Each skill is stored as a Redis document with a 384-dimensional embedding vector (generated from the skill's description and example phrases). When a user speaks, the query is embedded and matched via `FT.SEARCH KNN` in ~2ms on a Pi 4B.
 
 This is the core of the system. Redis acts as the intent classifier — no LLM needed, no prompt engineering, no token cost. The same input always produces the same match.
 
@@ -79,15 +81,15 @@ This matters for any deployment where an LLM has access to physical actuators.
 User Input
     |
     v
-Embed query (ONNX Runtime, ~9ms Pi 5 / ~40ms Pi 4B)
+Embed query (ONNX Runtime, ~37ms on Pi 4B / ~9ms on Pi 5)
     |
     v
-Redis FT.SEARCH KNN (~1ms)
+Redis FT.SEARCH KNN (~2ms on Pi 4B)
     |
     +---> Match found (similarity > 0.48)
     |         |
     |         +--> Standard skill --> Execute handler directly
-    |         |    Total: ~10ms
+    |         |    Total: ~40ms on Pi 4B
     |         |
     |         +--> Learned skill --> Spawn mini-agent with saved strategy
     |              Adapts to current environment
@@ -134,40 +136,57 @@ I designed the two-tier architecture, the three-layer Redis model (intent, learn
 
 ## Benchmarks
 
-### Raspberry Pi 5
+The v2 → ONNX → v3-small progression was walked end-to-end on the prior two
+Pi 5 branches (`main` and `onnx-optimization`). By the time the robot tank
+work landed, v3-small was the validated winner — so this branch was built
+**on v3-small only**, no v2 baseline rerun on the Pi 4B.
+
+### Raspberry Pi 4B (robot tank, 4GB RAM) — this branch
+
+| Backend | Model | Avg Latency | Accuracy |
+|---------|-------|------------|----------|
+| **ONNX** | **langcache-embed-v3-small (384-dim)** | **40ms** | **97%** |
+
+Only row measured. The v2 rungs were already climbed on Pi 5; rerunning them
+on a slower board would have added no new information.
+
+### Raspberry Pi 5 (prior branches, for reference)
 
 | Backend | Model | Avg Latency | Accuracy |
 |---------|-------|------------|----------|
 | PyTorch | langcache-embed-v2 (128-dim) | 260ms | 90% |
 | ONNX | langcache-embed-v2 (128-dim) | 61ms | 100% |
 | PyTorch | langcache-embed-v3-small (384-dim) | ~20ms | 100% |
-| **ONNX** | **langcache-embed-v3-small (384-dim)** | **~9ms** | **100%** |
+| ONNX | langcache-embed-v3-small (384-dim) | ~9ms | 100% |
 
-### Raspberry Pi 4B (robot tank, 4GB RAM)
+The v3-small ONNX row is what this branch ships. ~9ms on a Pi 5; ~40ms on
+this Pi 4B — same model, same code path, different silicon.
 
-| Backend | Model | Avg Latency | Accuracy |
-|---------|-------|------------|----------|
-| PyTorch v2 | langcache-embed-v2 | 645ms | 87% |
-| ONNX v2 | langcache-embed-v2 | 325ms | 92% |
-| **ONNX v3-small** | **langcache-embed-v3-small** | **40ms** | **97%** |
-
-### Time Breakdown (Pi 5, ONNX v3-small)
+### Time Breakdown (Pi 4B, ONNX v3-small)
 
 ```
-Embedding:  ████████░░  ~9ms  (90%)
-Redis KNN:  █░░░░░░░░░  ~1ms  (10%)
-Handler:    ░░░░░░░░░░  <1ms
+Embedding:  ████████████████████░░  ~37ms  (92%)
+Redis KNN:  █░░░░░░░░░░░░░░░░░░░░░   ~2ms  (6%)
+Handler:    ░░░░░░░░░░░░░░░░░░░░░░   <1ms  (2%)
 ```
 
 ---
 
 ## Branch Progression
 
-| Branch | Purpose | Key Finding |
-|--------|---------|-------------|
-| `main` | 9 system skills, PyTorch backend | Zero-agent routing works. ~20ms on Pi 5. |
-| `onnx-optimization` | ONNX Runtime backend | One-line change. 260ms to 61ms (v2). **9ms with v3-small.** |
-| `robot-tank-agent` | 26 skills, robot hardware, agent, learning | Full system on Pi 4B. Tier 2 agent with vision and skill learning. |
+The model and backend work was done on the Pi 5 branches. The robot tank
+branch inherited the winning configuration — ONNX + v3-small — and moved
+onto the Pi 4B without re-benchmarking the losers.
+
+| Branch | Hardware | Backend | Models tested | Key Finding |
+|--------|----------|---------|----------------|-------------|
+| `main` | Pi 5 | PyTorch | v2 → **v3-small** | Zero-agent routing works. 260ms on v2, **~20ms after the v3-small upgrade**. |
+| `onnx-optimization` | Pi 5 | ONNX Runtime | v2 → **v3-small** | One-line backend swap drops v2 from 260ms to 61ms. The v3-small upgrade then takes it to **~9ms**. |
+| **`claude/redis-v3-pi4`** (robot tank) | **Pi 4B** | **ONNX Runtime** | **v3-small only** | **Art of the possible on the robot's own board.** Skipped the v2 rungs — already validated on Pi 5 — and jumped straight to v3-small. **40ms end-to-end, 97% accuracy, no Pi 5 required.** Plus 26 robot skills, a Tier 2 agent with vision, and a learning loop that saves strategies back to Redis. |
+
+In short: the Pi 5 branches proved which backend and which model win. This
+branch takes that answer, puts it on a Pi 4B, and builds the robot on top
+of it.
 
 ---
 
