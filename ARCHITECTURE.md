@@ -44,8 +44,13 @@ occupies a region defined by all the ways a user might express that intent.
 ## Benchmark Results (Raspberry Pi 4B, 4GB RAM, CPU only)
 
 This branch shows the art of the possible on a Pi 4 — the same hardware that
-runs the Freenove Tank Robot. Other branches benchmarked on a Pi 5; this one
-proves the pipeline is viable on the older, lower-power board.
+runs the Freenove Tank Robot. Every branch in the project went through the
+same two-step story: a backend swap (PyTorch → ONNX Runtime) and a model
+upgrade (`langcache-embed-v2`, 128-dim → `langcache-embed-v3-small`,
+384-dim). Both steps were applied on `main`, `onnx-optimization`, and
+`robot-tank-agent` on a Pi 5; this branch reruns the same ladder on a Pi 4B
+to confirm the final v3-small pipeline holds up on the older, lower-power
+board that's actually bolted into the robot.
 
 Tested across 21 queries: 19 valid commands mapped to 9 skill handlers, plus
 2 garbage queries ("tell me a joke", "what's the meaning of life") that should
@@ -67,7 +72,7 @@ be rejected.
 |Avg search latency|325ms                                            |
 |Model             |redis/langcache-embed-v2 via ONNX Runtime        |
 
-### ONNX Backend, v3-small (this branch)
+### ONNX Backend, v3-small (shipped on every branch; measured here on Pi 4B)
 
 |Metric            |Value                                              |
 |------------------|---------------------------------------------------|
@@ -75,6 +80,10 @@ be rejected.
 |Avg search latency|40ms                                               |
 |Model             |redis/langcache-embed-v3-small via ONNX Runtime    |
 |Vector dim        |384 (native output, no truncation)                 |
+
+This v3-small row is the configuration every branch now runs. On a Pi 5 it
+clocks ~9ms (see `main`, `onnx-optimization`, `robot-tank-agent`); on this
+Pi 4B branch the same model and code path land at ~40ms.
 
 ### Comparison
 
@@ -200,21 +209,24 @@ is itself sub-millisecond.
 
 ## Optimization Ladder
 
-Each step is tested and proven. Steps 1-3 are complete on this branch — all
-measured on a Raspberry Pi 4B, the same board driving the robot.
+The same three-rung ladder was walked on every branch. Steps 1 and 2 are the
+backend swap; step 3 is the model upgrade (`langcache-embed-v2` → `langcache-
+embed-v3-small`), which landed on `main`, `onnx-optimization`, and
+`robot-tank-agent` as well. Numbers below are from this branch, measured on
+a Raspberry Pi 4B — the board driving the robot.
 
 ```
 Step 1: PyTorch v2 on Pi 4B CPU              → 645ms  ✅ Done
 Step 2: ONNX Runtime v2 on Pi 4B CPU         → 325ms  ✅ Done
-Step 3: ONNX Runtime v3-small on Pi 4B CPU   →  40ms  ✅ Done (this branch)
+Step 3: ONNX Runtime v3-small on Pi 4B CPU   →  40ms  ✅ Done (shipped on every branch)
 Step 4: ONNX + INT8 quantization             → ~20ms  (halves model size + faster math)
 Step 5: GPU offload to P620 (RTX 3090)       →  <5ms  (embed on GPU, search on Pi)
 ```
 
-The Pi 5 branches went PyTorch v2 → ONNX v2 → ONNX v3-small in the same ladder
-and bottomed out at ~9ms. On a Pi 4 we land at 40ms — still well inside the
-budget for real-time robot control, and achieved with the same model and the
-same code path.
+The Pi 5 branches walked the same ladder and bottomed out at ~9ms after the
+v3-small upgrade. On a Pi 4 we land at 40ms with identical code and
+identical model weights — still well inside the budget for real-time robot
+control.
 
 ## Tech Stack
 
