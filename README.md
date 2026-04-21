@@ -7,12 +7,14 @@
 
 ## What It Does
 
-Routes natural language to executable functions using Redis Vector Search. No LLM in the routing loop. The entire pipeline — embed, search, execute — completes in under 10 milliseconds on a Raspberry Pi 5.
+Routes natural language to executable functions using Redis Vector Search. No LLM in the routing loop. The entire pipeline — embed, search, execute — completes in ~40 milliseconds on a Raspberry Pi 4B.
+
+> **This branch (`claude/redis-v3-pi4`) is the art-of-the-possible cut.** The other branches ran on a Pi 5; this one stays on the same Pi 4B that drives the Freenove Tank Robot, and upgrades the embedding model from `langcache-embed-v2` (128-dim) to `langcache-embed-v3-small` (384-dim). Same pipeline, older board, better accuracy, 8x faster than the v2 baseline on the same hardware.
 
 The system controls a physical Freenove Tank Robot on a Raspberry Pi 4B. Motors, camera, ultrasonic sensors, servos, and LEDs are all dispatched through natural language matched against a skill library stored in Redis.
 
 ```
-"drive the robot forward"  -->  Embed (9ms)  -->  Redis KNN (1ms)  -->  Handler executes
+"drive the robot forward"  -->  Embed (~37ms)  -->  Redis KNN (~2ms)  -->  Handler executes
 ```
 
 When a query doesn't match any known skill, a Tier 2 agent steps in. The agent uses the same Redis skill library as its tool catalog, solves the task, and saves the strategy back to Redis so the next identical request routes at vector-search speed.
@@ -31,7 +33,7 @@ The question: **can Redis replace the LLM for the 90% of commands that don't nee
 
 ### 1. Intent Layer — Vector Search for Command Routing
 
-Each skill is stored as a Redis document with a 384-dimensional embedding vector (generated from the skill's description and example phrases). When a user speaks, the query is embedded and matched via `FT.SEARCH KNN` in ~1ms.
+Each skill is stored as a Redis document with a 384-dimensional embedding vector (generated from the skill's description and example phrases). When a user speaks, the query is embedded and matched via `FT.SEARCH KNN` in ~2ms on a Pi 4B.
 
 This is the core of the system. Redis acts as the intent classifier — no LLM needed, no prompt engineering, no token cost. The same input always produces the same match.
 
@@ -79,15 +81,15 @@ This matters for any deployment where an LLM has access to physical actuators.
 User Input
     |
     v
-Embed query (ONNX Runtime, ~9ms Pi 5 / ~40ms Pi 4B)
+Embed query (ONNX Runtime, ~37ms on Pi 4B / ~9ms on Pi 5)
     |
     v
-Redis FT.SEARCH KNN (~1ms)
+Redis FT.SEARCH KNN (~2ms on Pi 4B)
     |
     +---> Match found (similarity > 0.48)
     |         |
     |         +--> Standard skill --> Execute handler directly
-    |         |    Total: ~10ms
+    |         |    Total: ~40ms on Pi 4B
     |         |
     |         +--> Learned skill --> Spawn mini-agent with saved strategy
     |              Adapts to current environment
@@ -134,40 +136,41 @@ I designed the two-tier architecture, the three-layer Redis model (intent, learn
 
 ## Benchmarks
 
-### Raspberry Pi 5
+### Raspberry Pi 4B (robot tank, 4GB RAM) — this branch
+
+| Backend | Model | Avg Latency | Accuracy |
+|---------|-------|------------|----------|
+| PyTorch v2 | langcache-embed-v2 (128-dim) | 645ms | 87% |
+| ONNX v2 | langcache-embed-v2 (128-dim) | 325ms | 92% |
+| **ONNX v3-small** | **langcache-embed-v3-small (384-dim)** | **40ms** | **97%** |
+
+### Raspberry Pi 5 (other branches, for reference)
 
 | Backend | Model | Avg Latency | Accuracy |
 |---------|-------|------------|----------|
 | PyTorch | langcache-embed-v2 (128-dim) | 260ms | 90% |
 | ONNX | langcache-embed-v2 (128-dim) | 61ms | 100% |
 | PyTorch | langcache-embed-v3-small (384-dim) | ~20ms | 100% |
-| **ONNX** | **langcache-embed-v3-small (384-dim)** | **~9ms** | **100%** |
+| ONNX | langcache-embed-v3-small (384-dim) | ~9ms | 100% |
 
-### Raspberry Pi 4B (robot tank, 4GB RAM)
-
-| Backend | Model | Avg Latency | Accuracy |
-|---------|-------|------------|----------|
-| PyTorch v2 | langcache-embed-v2 | 645ms | 87% |
-| ONNX v2 | langcache-embed-v2 | 325ms | 92% |
-| **ONNX v3-small** | **langcache-embed-v3-small** | **40ms** | **97%** |
-
-### Time Breakdown (Pi 5, ONNX v3-small)
+### Time Breakdown (Pi 4B, ONNX v3-small)
 
 ```
-Embedding:  ████████░░  ~9ms  (90%)
-Redis KNN:  █░░░░░░░░░  ~1ms  (10%)
-Handler:    ░░░░░░░░░░  <1ms
+Embedding:  ████████████████████░░  ~37ms  (92%)
+Redis KNN:  █░░░░░░░░░░░░░░░░░░░░░   ~2ms  (6%)
+Handler:    ░░░░░░░░░░░░░░░░░░░░░░   <1ms  (2%)
 ```
 
 ---
 
 ## Branch Progression
 
-| Branch | Purpose | Key Finding |
-|--------|---------|-------------|
-| `main` | 9 system skills, PyTorch backend | Zero-agent routing works. ~20ms on Pi 5. |
-| `onnx-optimization` | ONNX Runtime backend | One-line change. 260ms to 61ms (v2). **9ms with v3-small.** |
-| `robot-tank-agent` | 26 skills, robot hardware, agent, learning | Full system on Pi 4B. Tier 2 agent with vision and skill learning. |
+| Branch | Hardware | Purpose | Key Finding |
+|--------|----------|---------|-------------|
+| `main` | Pi 5 | 9 system skills, PyTorch backend | Zero-agent routing works. ~260ms (v2), ~20ms (v3-small). |
+| `onnx-optimization` | Pi 5 | ONNX Runtime backend | One-line change. 260ms → 61ms (v2). **9ms with v3-small.** |
+| `robot-tank-agent` | Pi 5 → Pi 4B | 26 skills, robot hardware, agent, learning | Full system port. Tier 2 agent with vision and skill learning. |
+| **`claude/redis-v3-pi4`** | **Pi 4B** | **v3-small on the robot's actual board** | **Art of the possible on older hardware: 40ms end-to-end, 97% accuracy, no Pi 5 needed.** |
 
 ---
 
